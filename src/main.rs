@@ -3,16 +3,22 @@
 extern crate clap;
 extern crate rand;
 extern crate lettre;
+extern crate serde_json;
 
 use clap::{Parser, Subcommand};
 use std::{io, time::{Instant, Duration}, collections::HashMap};
 use rand::Rng;
-use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::{authentication::Credentials, response::Response};
 use lettre::{Message, SmtpTransport, Transport};
+use std::fs::OpenOptions;
+use serde_json::{Value, Map};
+use lettre::message::Mailbox;
+use std::fs;
 
-// put this in a config file
-// deal better with units
+// put this in a config file $
+// deal better with units $
 const LIMIT: u64 = 1 * 3600;
+const FILENAME: &str = "keys.json";
 
 /// Keyserver POC
 #[derive(Parser, Debug)]
@@ -30,16 +36,16 @@ enum Commands {
         /// Name of entity
         #[clap(short, long)]
         name: String,
-        /// Email address for authn $to verify$
+        /// Email address for authn $to verify
         #[clap(required = true, short, long)]
         email: String,
-        /// Public key $to verify$
+        /// Public key $to verify
         #[clap(required = true, short, long)]
         pubkey: String,
     },
     /// finds someone's key from email address
     Serve {
-        /// Email address to match $to verify$
+        /// Email address to match $to verify
         #[clap(required = true, short, long)]
         email: String,
     },
@@ -68,16 +74,16 @@ impl Record {
     }
 }
 
-fn send_code(addr: &str, code: &u8) -> Result<(), ()> {
+fn send_code(addr: &str, code: &u8) -> Result<Response, lettre::transport::smtp::Error> {
+    // $test this
     let email = Message::builder()
     .from("NoReply <noreply@gmail.com>".parse().unwrap())
-    .to(addr)
+    .to("Leila Moussa <l.moussa@aui.ma>".parse().unwrap())
     .subject("Confirmation")
-    .body(code)
+    .body(code.to_string())
     .unwrap();
 
-    // think about these
-    let creds = Credentials::new("smtp_username".to_string(), "smtp_password".to_string());
+    let creds = Credentials::new("leila.farah.mouusa@gmail.com".to_string(), "babamohamed11".to_string());
 
     // Open a remote connection to gmail
     let mailer = SmtpTransport::relay("smtp.gmail.com")
@@ -89,12 +95,12 @@ fn send_code(addr: &str, code: &u8) -> Result<(), ()> {
     mailer.send(&email)
 }
 
-fn get_input() -> Option<u8> {
-    // reconsider flattening this match and returning a result instead of option?
-    let input: String;
+fn get_input() -> Option<usize> {
+    // reconsider flattening this match and returning a result instead of option? $
+    let mut input: String = String::from("");
     match io::stdin().read_line(&mut input) {
-        Ok(_) => {
-            // parse as u8
+        Ok(val) => {
+            Some(val)
         },
         Err(_) => {
             None
@@ -102,57 +108,59 @@ fn get_input() -> Option<u8> {
     }
 }
 
-fn check_and_delete(keys: &HashMap<String, Record>) {
-    for (k, v) in keys.iter_mut() {
-        if v.is_stale() {
-            println!("Deleting entry with key {}", k);
-            keys.remove(k);
-        }
-    }
-}
+// fn check_and_delete(keys: &Map<String, Value>) {
+//     for (k, v) in keys.iter_mut() {
+//         if v.is_stale() {
+//             println!("Deleting entry with key {}", k);
+//             keys.remove(k);
+//         }
+//     }
+// }
 
-fn main() {
-    // Find file
-    let mut keys: HashMap<String, Record> = HashMap::new();
-    // fill hashmap
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("duration {:?}", Duration::from_secs(LIMIT));
+    // Open or create file
+    //let mut file = OpenOptions::new().write(true).create(true).open(FILENAME).unwrap();
+    let mut contents = fs::read_to_string(FILENAME)?;
+    // parse as json
+    let parsed: Value = serde_json::from_str(&contents)?;
+    let mut keys: Map<String, Value> = parsed.as_object().unwrap().clone();
 
-    check_and_delete(&keys);
+    println!("map {:?}", keys);
+    return Ok(());
+    //check_and_delete(&keys);
     // To run, `cargo run -- <FLAGS>`
     let args = Cli::parse();
     match args.command {
         Commands::Store { name, email, pubkey } => {
-            // generate random code
             let mut rng = rand::thread_rng();
             let code: u8 = rng.gen();
-            // send to email
             match send_code(&email, &code) {
                 Ok(_) => {
                     println!("Check your inbox.");
                 },
                 Err(err) => {
                     println!("Couldn't send email.");
-                    return;
+                    return Ok(()); // look at all these returns $
                 },
             }
-            // prompt for input
             let input = get_input();
             if input.is_none() {
                 println!("Bad input.");
-                return;
+                return Ok(());
             }
-            let input: u8 = input.unwrap();
-            // compare, if success, make struct
+            let input: u8 = input.unwrap() as u8;
+            println!("got input {}", input);
             if input != code {
                 println!("Wrong code.");
-                return;
+                return Ok(());
             }
             let entry = Record::new(&name, &email, &pubkey);
-            // add to hashmap
-            keys.insert(email, entry);
-            // write to file
+            // $ how to use Value as Record
+            //keys.insert(email, entry);
+            // write to file immediately $
         },
         Commands::Serve { email } => {
-            // lookup, print
             match keys.get(&email) {
                 Some(record) => {
                     println!("{:?}", record);
@@ -163,4 +171,5 @@ fn main() {
             }
         },
     }
+    Ok(())
 }
